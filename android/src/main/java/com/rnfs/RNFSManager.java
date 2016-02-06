@@ -1,12 +1,15 @@
 package com.rnfs;
 
+import android.content.Context;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.AssetManager;
+import android.net.Uri;
 import android.os.Environment;
 import android.os.StatFs;
 import android.support.annotation.Nullable;
 import android.util.Base64;
 import android.util.SparseArray;
+import android.util.Log;
 
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Promise;
@@ -19,6 +22,7 @@ import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.modules.core.RCTNativeAppEventEmitter;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -44,10 +48,13 @@ public class RNFSManager extends ReactContextBaseJavaModule {
   private static final String RNFSFileTypeRegular = "RNFSFileTypeRegular";
   private static final String RNFSFileTypeDirectory = "RNFSFileTypeDirectory";
 
+  private ReactApplicationContext mReactContext;
+
   private SparseArray<Downloader> downloaders = new SparseArray<Downloader>();
 
   public RNFSManager(ReactApplicationContext reactContext) {
     super(reactContext);
+    mReactContext = reactContext;
   }
 
   @Override
@@ -69,6 +76,51 @@ public class RNFSManager extends ReactContextBaseJavaModule {
       ex.printStackTrace();
       reject(promise, filepath, ex);
     }
+  }
+
+  /**
+   * get bytes array from Uri.
+   *
+   * @param context current context.
+   * @param uri uri fo the file to read.
+   * @return a bytes array.
+   * @throws IOException
+   */
+  private static byte[] getBytes(Context context, Uri uri) throws IOException {
+    InputStream iStream = context.getContentResolver().openInputStream(uri);
+    try {
+      return getBytes(iStream);
+    } finally {
+      // close the stream
+      try {
+        iStream.close();
+      } catch (IOException ignored) { /* do nothing */ }
+    }
+  }
+
+  /**
+   * get bytes from input stream.
+   *
+   * @param inputStream inputStream.
+   * @return byte array read from the inputStream.
+   * @throws IOException
+   */
+  private static byte[] getBytes(InputStream inputStream) throws IOException {
+    byte[] bytesResult = null;
+    ByteArrayOutputStream byteBuffer = new ByteArrayOutputStream();
+    int bufferSize = 1024;
+    byte[] buffer = new byte[bufferSize];
+    try {
+      int len;
+      while ((len = inputStream.read(buffer)) != -1) {
+        byteBuffer.write(buffer, 0, len);
+      }
+      bytesResult = byteBuffer.toByteArray();
+    } finally {
+      // close the stream
+      try{ byteBuffer.close(); } catch (IOException ignored){ /* do nothing */ }
+    }
+    return bytesResult;
   }
 
   @ReactMethod
@@ -108,16 +160,13 @@ public class RNFSManager extends ReactContextBaseJavaModule {
         return;
       }
 
-      if (!file.exists()) {
-        rejectFileNotFound(promise, filepath);
-        return;
+      Uri uri = Uri.parse(filepath);
+      if (uri.getScheme() == null) {
+        uri = Uri.parse("file://" + filepath);
       }
+      byte[] inputData = getBytes(mReactContext, uri);
 
-      FileInputStream inputStream = new FileInputStream(filepath);
-      byte[] buffer = new byte[(int)file.length()];
-      inputStream.read(buffer);
-
-      String base64Content = Base64.encodeToString(buffer, Base64.NO_WRAP);
+      String base64Content = Base64.encodeToString(inputData, Base64.NO_WRAP);
 
       promise.resolve(base64Content);
     } catch (Exception ex) {
@@ -233,7 +282,7 @@ public class RNFSManager extends ReactContextBaseJavaModule {
   }
 
   private void copyFile(String filepath, String destPath) throws IOException {
-    InputStream in = new FileInputStream(filepath);
+    InputStream in = getReactApplicationContext().getContentResolver().openInputStream(filepathToUri(filepath));
     OutputStream out = new FileOutputStream(destPath);
 
     byte[] buffer = new byte[1024];
@@ -600,6 +649,14 @@ public class RNFSManager extends ReactContextBaseJavaModule {
 
   private void rejectFileIsDirectory(Promise promise) {
     promise.reject("EISDIR", "EISDIR: illegal operation on a directory, read");
+  }
+
+  private Uri filepathToUri(String filepath) {
+    Uri uri = Uri.parse(filepath);
+    if (uri.getScheme() == null) {
+      uri = Uri.parse("file://" + filepath);
+    }
+    return uri;
   }
 
   @Override
