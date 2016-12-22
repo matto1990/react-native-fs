@@ -2,6 +2,7 @@ package com.rnfs;
 
 import android.content.res.AssetFileDescriptor;
 import android.content.res.AssetManager;
+import android.net.Uri;
 import android.os.Environment;
 import android.os.StatFs;
 import android.support.annotation.Nullable;
@@ -113,7 +114,7 @@ public class RNFSManager extends ReactContextBaseJavaModule {
         return;
       }
 
-      FileInputStream inputStream = new FileInputStream(filepath);
+      InputStream inputStream = getReactApplicationContext().getContentResolver().openInputStream(filepathToUri(filepath));
       byte[] buffer = new byte[(int)file.length()];
       inputStream.read(buffer);
 
@@ -233,7 +234,7 @@ public class RNFSManager extends ReactContextBaseJavaModule {
   }
 
   private void copyFile(String filepath, String destPath) throws IOException {
-    InputStream in = new FileInputStream(filepath);
+    InputStream in = getReactApplicationContext().getContentResolver().openInputStream(filepathToUri(filepath));
     OutputStream out = new FileOutputStream(destPath);
 
     byte[] buffer = new byte[1024];
@@ -600,6 +601,14 @@ public class RNFSManager extends ReactContextBaseJavaModule {
 
   private void rejectFileIsDirectory(Promise promise) {
     promise.reject("EISDIR", "EISDIR: illegal operation on a directory, read");
+  }
+
+  private Uri filepathToUri(String filepath) {
+    Uri uri = Uri.parse(filepath);
+    if (uri.getScheme() == null) {
+      uri = Uri.parse("file://" + filepath);
+    }
+    return uri;
   }
 
   @Override
